@@ -11,7 +11,11 @@ public interface MatchingService {
 
     MatchingCheckResultDTO bindWashbasin(BindingRequestDTO request);
 
+    MatchingCheckResultDTO bindWashbasinInTx(BindingRequestDTO request);
+
     MatchingCheckResultDTO unbindWashbasin(Long unitId, Long washbasinId, String operator);
+
+    MatchingCheckResultDTO unbindWashbasinInTx(Long unitId, Long washbasinId, String operator);
 
     MatchingCheckResultDTO checkCapacity(Long unitId);
 

@@ -16,4 +16,7 @@ public interface WashbasinMapper extends BaseMapper<Washbasin> {
 
     @Select("SELECT w.* FROM washbasin w WHERE w.building_id = #{buildingId} AND w.status = 1")
     List<Washbasin> selectByBuildingId(@Param("buildingId") Long buildingId);
+
+    @Select("SELECT w.* FROM washbasin w WHERE w.id = #{id} FOR UPDATE")
+    Washbasin selectByIdForUpdate(@Param("id") Long id);
 }

@@ -74,10 +74,21 @@ const handleBind = async () => {
 
 const handleUnbind = async (washbasinId: number) => {
   if (!selectedUnitId.value) return
-  const res = await matchingApi.unbind(selectedUnitId.value, washbasinId)
-  ElMessage.success('解绑成功')
-  selectedWashbasinIds.value = selectedWashbasinIds.value.filter(id => id !== washbasinId)
-  checkResult.value = res
+  try {
+    const res = await matchingApi.unbind(selectedUnitId.value, washbasinId)
+    selectedWashbasinIds.value = selectedWashbasinIds.value.filter(id => id !== washbasinId)
+    checkResult.value = res
+    if (res.checkResult === 'FAIL') {
+      ElMessage.error(`解绑成功，本单元拆后容量已不足：${res.checkMessage}`)
+    } else if (res.checkResult === 'WARN') {
+      ElMessage.warning(`解绑成功：${res.checkMessage}`)
+    } else {
+      ElMessage.success('解绑成功')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '解绑失败')
+  }
+  await checkCapacity()
 }
 
 const getStatusColor = (result: string) => {

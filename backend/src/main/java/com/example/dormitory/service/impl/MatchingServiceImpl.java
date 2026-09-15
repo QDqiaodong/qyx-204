@@ -1,5 +1,6 @@
 package com.example.dormitory.service.impl;
 
+import com.example.dormitory.config.RedisLock;
 import com.example.dormitory.dto.request.BindingRequestDTO;
 import com.example.dormitory.dto.response.MatchingCheckResultDTO;
 import com.example.dormitory.dto.response.UnitMatchingDTO;
@@ -16,6 +17,8 @@ import com.example.dormitory.mapper.ShiftQuotaOrderMapper;
 import com.example.dormitory.mapper.UnitWashbasinBindingMapper;
 import com.example.dormitory.mapper.WashbasinMapper;
 import com.example.dormitory.service.MatchingService;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,26 +36,50 @@ public class MatchingServiceImpl implements MatchingService {
     private final MatchingCheckRecordMapper checkRecordMapper;
     private final BuildingMapper buildingMapper;
     private final ShiftQuotaOrderMapper shiftQuotaOrderMapper;
+    private final RedisLock redisLock;
+
+    /**
+     * 自注入代理，保证 bind/unbind 的事务边界在分布式锁之内，
+     * 即“拿到锁 -> 开事务 -> 提交 -> 放锁”，避免锁在事务提交前释放造成的空窗。
+     */
+    private final MatchingService self;
 
     private static final double WARN_THRESHOLD = 0.85;
+
+    private static final String LOCK_WASHBASIN_PREFIX = "lock:matching:washbasin:";
 
     public MatchingServiceImpl(LivingUnitMapper livingUnitMapper,
                                WashbasinMapper washbasinMapper,
                                UnitWashbasinBindingMapper bindingMapper,
                                MatchingCheckRecordMapper checkRecordMapper,
                                BuildingMapper buildingMapper,
-                               ShiftQuotaOrderMapper shiftQuotaOrderMapper) {
+                               ShiftQuotaOrderMapper shiftQuotaOrderMapper,
+                               RedisLock redisLock,
+                               @Lazy MatchingService self) {
         this.livingUnitMapper = livingUnitMapper;
         this.washbasinMapper = washbasinMapper;
         this.bindingMapper = bindingMapper;
         this.checkRecordMapper = checkRecordMapper;
         this.buildingMapper = buildingMapper;
         this.shiftQuotaOrderMapper = shiftQuotaOrderMapper;
+        this.redisLock = redisLock;
+        this.self = self;
+    }
+
+    @Override
+    public MatchingCheckResultDTO bindWashbasin(BindingRequestDTO request) {
+        String lockKey = LOCK_WASHBASIN_PREFIX + request.getWashbasinId();
+        String token = redisLock.tryLock(lockKey);
+        try {
+            return self.bindWashbasinInTx(request);
+        } finally {
+            redisLock.unlock(lockKey, token);
+        }
     }
 
     @Override
     @Transactional
-    public MatchingCheckResultDTO bindWashbasin(BindingRequestDTO request) {
+    public MatchingCheckResultDTO bindWashbasinInTx(BindingRequestDTO request) {
         LivingUnit unit = livingUnitMapper.selectById(request.getUnitId());
         Washbasin washbasin = washbasinMapper.selectById(request.getWashbasinId());
 
@@ -67,28 +94,43 @@ public class MatchingServiceImpl implements MatchingService {
             throw new RuntimeException("洗漱台与居住单元不属于同一楼栋");
         }
 
-        List<UnitWashbasinBinding> existingBindings = bindingMapper.selectByUnitId(request.getUnitId());
-        boolean alreadyBound = existingBindings.stream()
-                .anyMatch(b -> b.getWashbasinId().equals(request.getWashbasinId()));
+        // 锁定洗漱台行：同台的并发绑定/解绑在此串行，杜绝“挂上去瞬间被拆请求误伤”
+        washbasinMapper.selectByIdForUpdate(request.getWashbasinId());
 
-        if (alreadyBound) {
+        UnitWashbasinBinding existing =
+                bindingMapper.selectByUnitAndWashbasinForUpdate(request.getUnitId(), request.getWashbasinId());
+        if (existing != null && existing.getStatus() == 1) {
             throw new RuntimeException("该洗漱台已绑定到该单元");
         }
 
+        if (existing == null) {
+            UnitWashbasinBinding binding = new UnitWashbasinBinding();
+            binding.setUnitId(request.getUnitId());
+            binding.setWashbasinId(request.getWashbasinId());
+            binding.setBindingTime(LocalDateTime.now());
+            binding.setStatus(1);
+            try {
+                bindingMapper.insert(binding);
+            } catch (DuplicateKeyException e) {
+                // 并发下可能已被另一事务写入，按“复活失效关系”处理
+                existing = bindingMapper.selectByUnitAndWashbasin(request.getUnitId(), request.getWashbasinId());
+                if (existing == null || existing.getStatus() == 1) {
+                    throw new RuntimeException("该洗漱台已绑定到该单元");
+                }
+                bindingMapper.reactivate(existing.getId());
+            }
+        } else {
+            // 该单元此前拆过同台：复活原失效行，而不是新增，避免唯一键冲突
+            bindingMapper.reactivate(existing.getId());
+        }
+
+        // 容量一律以变更后该单元仍有效的绑定重查，绝不沿用历史快照
         Integer totalCapacity = bindingMapper.sumCapacityByUnitId(request.getUnitId());
         if (totalCapacity == null) {
             totalCapacity = 0;
         }
-        totalCapacity += washbasin.getCapacity();
 
         MatchingCheckResultDTO checkResult = performCapacityCheck(unit.getResidentCount(), totalCapacity);
-
-        UnitWashbasinBinding binding = new UnitWashbasinBinding();
-        binding.setUnitId(request.getUnitId());
-        binding.setWashbasinId(request.getWashbasinId());
-        binding.setBindingTime(LocalDateTime.now());
-        binding.setStatus(1);
-        bindingMapper.insert(binding);
 
         saveCheckRecord(request.getUnitId(), request.getWashbasinId(), "BIND",
                 unit.getResidentCount(), totalCapacity,
@@ -99,39 +141,54 @@ public class MatchingServiceImpl implements MatchingService {
     }
 
     @Override
-    @Transactional
     public MatchingCheckResultDTO unbindWashbasin(Long unitId, Long washbasinId, String operator) {
+        String lockKey = LOCK_WASHBASIN_PREFIX + washbasinId;
+        String token = redisLock.tryLock(lockKey);
+        try {
+            return self.unbindWashbasinInTx(unitId, washbasinId, operator);
+        } finally {
+            redisLock.unlock(lockKey, token);
+        }
+    }
+
+    @Override
+    @Transactional
+    public MatchingCheckResultDTO unbindWashbasinInTx(Long unitId, Long washbasinId, String operator) {
         LivingUnit unit = livingUnitMapper.selectById(unitId);
         if (unit == null) {
             throw new RuntimeException("居住单元不存在");
         }
 
-        List<UnitWashbasinBinding> bindings = bindingMapper.selectByUnitId(unitId);
-        UnitWashbasinBinding bindingToRemove = bindings.stream()
-                .filter(b -> b.getWashbasinId().equals(washbasinId))
-                .findFirst()
-                .orElse(null);
+        // 锁定洗漱台行：同台并发操作（别人正在把同台挂到第三个单元）在此串行，
+        // 下面只按 (unitId, washbasinId) 精确失效，绝不波及其他单元的关系
+        Washbasin washbasin = washbasinMapper.selectByIdForUpdate(washbasinId);
+        if (washbasin == null) {
+            throw new RuntimeException("洗漱台不存在");
+        }
 
-        if (bindingToRemove == null) {
+        UnitWashbasinBinding binding =
+                bindingMapper.selectByUnitAndWashbasinForUpdate(unitId, washbasinId);
+        if (binding == null || binding.getStatus() != 1) {
             throw new RuntimeException("该绑定关系不存在");
         }
 
-        Integer totalCapacity = bindingMapper.sumCapacityByUnitId(unitId);
-        if (totalCapacity == null) {
-            totalCapacity = 0;
+        // 只拆当前单元与这台洗漱台的一条关系，其他单元挂同台的关系原样保留
+        int affected = bindingMapper.invalidate(unitId, washbasinId);
+        if (affected == 0) {
+            throw new RuntimeException("该绑定关系不存在");
         }
 
-        Washbasin washbasin = washbasinMapper.selectById(washbasinId);
-        if (washbasin != null) {
-            totalCapacity = Math.max(0, totalCapacity - washbasin.getCapacity());
+        // 按拆完后本单元仍有效绑定重新汇总，已拆掉的容量不再计入
+        Integer remainingCapacity = bindingMapper.sumCapacityByUnitId(unitId);
+        if (remainingCapacity == null) {
+            remainingCapacity = 0;
         }
 
-        bindingMapper.invalidateByWashbasinId(washbasinId);
+        MatchingCheckResultDTO checkResult = performCapacityCheck(unit.getResidentCount(), remainingCapacity);
 
-        MatchingCheckResultDTO checkResult = performCapacityCheck(unit.getResidentCount(), totalCapacity);
-
+        // 仅追加一条 UNBIND 痕迹，历史 BIND 等记录不改、不删
         saveCheckRecord(unitId, washbasinId, "UNBIND",
-                unit.getResidentCount(), totalCapacity,
+                unit.getResidentCount(), remainingCapacity,
                 checkResult.getCheckResult(), checkResult.getCheckMessage(),
                 operator);
 
