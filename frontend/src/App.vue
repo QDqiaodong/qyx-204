@@ -6,6 +6,7 @@ import MatchingManage from './components/MatchingManage.vue'
 import MatchingList from './components/MatchingList.vue'
 import RecordsList from './components/RecordsList.vue'
 import QuotaManage from './components/QuotaManage.vue'
+import RepairManage from './components/RepairManage.vue'
 
 const activeTab = ref('washbasin')
 
@@ -15,6 +16,7 @@ const tabs = [
   { label: '绑定匹配', value: 'matching' },
   { label: '匹配一览', value: 'list' },
   { label: '当班定额', value: 'quota' },
+  { label: '洗漱台送检', value: 'repair' },
   { label: '校验记录', value: 'records' }
 ]
 </script>
@@ -35,6 +37,7 @@ const tabs = [
       <MatchingManage v-else-if="activeTab === 'matching'" />
       <MatchingList v-else-if="activeTab === 'list'" />
       <QuotaManage v-else-if="activeTab === 'quota'" />
+      <RepairManage v-else-if="activeTab === 'repair'" />
       <RecordsList v-else-if="activeTab === 'records'" />
     </main>
   </div>

@@ -25,6 +25,7 @@ const getStatusColor = (status: string) => {
     case '预警': return 'warning'
     case '不匹配': return 'danger'
     case '超定额': return 'danger'
+    case '送检中': return 'warning'
     default: return 'info'
   }
 }
@@ -35,9 +36,12 @@ const getStatusText = (status: string) => {
     case '预警': return '容量预警'
     case '不匹配': return '不匹配'
     case '超定额': return '超定额'
+    case '送检中': return '送检中'
     default: return '未绑定'
   }
 }
+
+const formatTime = (t?: string) => (t ? new Date(t).toLocaleString() : '')
 
 const loadData = async () => {
   loading.value = true
@@ -50,7 +54,7 @@ const rowClassName = ({ row }: { row: UnitMatching }) => {
 }
 
 const handleExport = () => {
-  const headers = ['单元编号', '所属楼栋', '楼层', '房间数', '居住人数', '楼栋合计人数', '当班定额', '总容纳容量', '剩余容量', '使用率', '匹配状态']
+  const headers = ['单元编号', '所属楼栋', '楼层', '房间数', '居住人数', '楼栋合计人数', '当班定额', '总容纳容量', '送检暂缺容量', '剩余容量', '使用率', '匹配状态', '配套洗漱台', '送检中洗漱台']
   const rows = units.value.map(u => [
     u.unitCode,
     u.buildingName,
@@ -60,9 +64,14 @@ const handleExport = () => {
     u.buildingResidentTotal ?? '',
     u.shiftQuotaCapacity ?? '未开单',
     u.totalCapacity,
+    u.repairingCapacity ? -u.repairingCapacity : 0,
     u.remainingCapacity,
     `${u.usageRate.toFixed(1)}%`,
-    getStatusText(u.matchingStatus)
+    getStatusText(u.matchingStatus),
+    u.washbasins.map(w => w.washbasinCode).join('|'),
+    (u.repairingWashbasins || [])
+      .map(w => `${w.washbasinCode}(${w.damagePart},${w.dutyPerson})`)
+      .join('|')
   ])
   
   const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
@@ -116,12 +125,37 @@ onMounted(() => {
           </template>
         </template>
       </el-table-column>
-      <el-table-column label="配套洗漱台">
+      <el-table-column label="配套洗漱台" min-width="220">
         <template #default="scope">
           <div v-if="scope.row.washbasins.length === 0" class="empty-washbasin">无</div>
-          <el-tag v-for="w in scope.row.washbasins" :key="w.id" size="small" style="margin: 2px">
+          <el-tag
+            v-for="w in scope.row.washbasins"
+            :key="w.id"
+            size="small"
+            type="success"
+            style="margin: 2px"
+          >
             {{ w.washbasinCode }} ({{ w.capacity }}人)
           </el-tag>
+          <div
+            v-for="w in scope.row.repairingWashbasins || []"
+            :key="'repair-' + w.id"
+            class="repairing-basin"
+          >
+            <el-tag size="small" type="info" style="margin: 2px; text-decoration: line-through">
+              {{ w.washbasinCode }} ({{ w.capacity }}人)
+            </el-tag>
+            <span class="repair-meta">
+              送检中 · {{ w.damagePart }} · {{ w.dutyPerson }} · 自{{ formatTime(w.repairStartedAt) }}
+            </span>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="送检暂缺容量" width="110">
+        <template #default="scope">
+          <span :class="scope.row.repairingCapacity ? 'negative' : ''">
+            {{ scope.row.repairingCapacity ? '-' + scope.row.repairingCapacity + '人' : '—' }}
+          </span>
         </template>
       </el-table-column>
     </el-table>
@@ -154,6 +188,10 @@ onMounted(() => {
             <span class="summary-value danger">{{ units.filter(u => u.matchingStatus === '超定额').length }}</span>
           </div>
           <div class="summary-item">
+            <span class="summary-label">送检中：</span>
+            <span class="summary-value warning">{{ units.filter(u => (u.repairingWashbasins || []).length > 0).length }}</span>
+          </div>
+          <div class="summary-item">
             <span class="summary-label">未绑定：</span>
             <span class="summary-value info">{{ units.filter(u => u.matchingStatus === '未绑定').length }}</span>
           </div>
@@ -173,6 +211,18 @@ onMounted(() => {
 
 .empty-washbasin {
   color: #999;
+}
+
+.repairing-basin {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.repair-meta {
+  color: #909399;
+  font-size: 12px;
+  margin-left: 4px;
 }
 
 .negative {

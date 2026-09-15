@@ -83,6 +83,8 @@ export interface UnitMatching {
   roomCount: number
   residentCount: number
   washbasins: WashbasinInfo[]
+  repairingWashbasins?: WashbasinInfo[]
+  repairingCapacity?: number
   totalCapacity: number
   remainingCapacity: number
   usageRate: number
@@ -97,6 +99,11 @@ export interface WashbasinInfo {
   washbasinCode: string
   capacity: number
   location: string
+  repairing?: boolean
+  repairOrderId?: number
+  damagePart?: string
+  dutyPerson?: string
+  repairStartedAt?: string
 }
 
 export interface MatchingCheckRecord {
@@ -135,6 +142,22 @@ export interface BuildingQuotaStatus {
   quotaCapacity?: number
   dutyPerson?: string
   overQuota: boolean
+}
+
+export type RepairStatus = 'PENDING' | 'REPAIRED'
+
+export interface RepairOrder {
+  id: number
+  washbasinId: number
+  damagePart: string
+  dutyPerson: string
+  operator?: string
+  status: RepairStatus
+  openFlag?: number | null
+  repairNote?: string
+  repairedAt?: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export const buildingApi = {
@@ -205,4 +228,22 @@ export const quotaOrderApi = {
     post<ShiftQuotaOrder>(`/quota-orders/${id}/close`, null, {
       params: { operator: operator || '' }
     })
+}
+
+export const repairOrderApi = {
+  getAll: (params?: { washbasinId?: number; status?: string; buildingId?: number }) =>
+    get<RepairOrder[]>('/repair-orders', { params }),
+  getOpen: () => get<RepairOrder[]>('/repair-orders/open'),
+  getCurrent: (washbasinId: number) =>
+    get<RepairOrder | null>('/repair-orders/current', { params: { washbasinId } }),
+  create: (data: {
+    washbasinId: number
+    damagePart: string
+    dutyPerson: string
+    operator?: string
+  }) => post<RepairOrder>('/repair-orders', data),
+  complete: (
+    id: number,
+    data?: { repairNote?: string; operator?: string }
+  ) => post<RepairOrder>(`/repair-orders/${id}/complete`, data || {})
 }

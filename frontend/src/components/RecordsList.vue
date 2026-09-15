@@ -25,6 +25,8 @@ const getCheckTypeText = (type: string) => {
     case 'QUOTA_OPEN': return '定额开单'
     case 'QUOTA_APPEND': return '定额追加'
     case 'QUOTA_CLOSE': return '定额结案'
+    case 'REPAIR_OPEN': return '洗漱台送检'
+    case 'REPAIR_DONE': return '送检修复'
     default: return type
   }
 }
@@ -36,6 +38,8 @@ const getCheckTypeColor = (type: string) => {
     case 'QUOTA_OPEN': return 'primary'
     case 'QUOTA_APPEND': return 'danger'
     case 'QUOTA_CLOSE': return 'info'
+    case 'REPAIR_OPEN': return 'warning'
+    case 'REPAIR_DONE': return 'success'
     default: return 'info'
   }
 }
@@ -90,7 +94,10 @@ onMounted(() => {
             </el-tag>
           </template>
           <template v-else-if="col.prop === 'unitId'">
-            {{ scope.row.unitId === 0 ? '楼栋级' : scope.row.unitId }}
+            <span v-if="scope.row.washbasinId && scope.row.unitId === 0" class="sub">
+              洗漱台#{{ scope.row.washbasinId }}
+            </span>
+            <span v-else>{{ scope.row.unitId === 0 ? '楼栋级' : scope.row.unitId }}</span>
           </template>
           <template v-else-if="col.prop === 'checkTime'">
             {{ new Date(scope.row.checkTime).toLocaleString() }}
@@ -118,5 +125,9 @@ onMounted(() => {
 
 .empty-state {
   padding: 40px;
+}
+
+.sub {
+  color: #909399;
 }
 </style>

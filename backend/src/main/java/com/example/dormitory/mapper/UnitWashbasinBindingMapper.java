@@ -26,9 +26,13 @@ public interface UnitWashbasinBindingMapper extends BaseMapper<UnitWashbasinBind
     UnitWashbasinBinding selectByUnitAndWashbasinForUpdate(@Param("unitId") Long unitId,
                                                            @Param("washbasinId") Long washbasinId);
 
+    // 未结送检（待接单）的洗漱台不计入单元容量：绑定痕迹保留，送检期间从配套口径中剔除，
+    // 已修复（无 open_flag=1 的送检单）后自动重新计入
     @Select("SELECT SUM(w.capacity) FROM unit_washbasin_binding b " +
             "JOIN washbasin w ON b.washbasin_id = w.id " +
-            "WHERE b.unit_id = #{unitId} AND b.status = 1 AND w.status = 1")
+            "WHERE b.unit_id = #{unitId} AND b.status = 1 AND w.status = 1 " +
+            "AND NOT EXISTS (SELECT 1 FROM washbasin_repair_order r " +
+            "WHERE r.washbasin_id = w.id AND r.status = 'PENDING')")
     Integer sumCapacityByUnitId(@Param("unitId") Long unitId);
 
     @Update("UPDATE unit_washbasin_binding SET status = 0, updated_at = NOW() " +

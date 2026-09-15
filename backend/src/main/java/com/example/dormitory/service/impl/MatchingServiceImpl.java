@@ -7,12 +7,14 @@ import com.example.dormitory.dto.response.UnitMatchingDTO;
 import com.example.dormitory.entity.Building;
 import com.example.dormitory.entity.LivingUnit;
 import com.example.dormitory.entity.MatchingCheckRecord;
+import com.example.dormitory.entity.RepairOrder;
 import com.example.dormitory.entity.ShiftQuotaOrder;
 import com.example.dormitory.entity.UnitWashbasinBinding;
 import com.example.dormitory.entity.Washbasin;
 import com.example.dormitory.mapper.BuildingMapper;
 import com.example.dormitory.mapper.LivingUnitMapper;
 import com.example.dormitory.mapper.MatchingCheckRecordMapper;
+import com.example.dormitory.mapper.RepairOrderMapper;
 import com.example.dormitory.mapper.ShiftQuotaOrderMapper;
 import com.example.dormitory.mapper.UnitWashbasinBindingMapper;
 import com.example.dormitory.mapper.WashbasinMapper;
@@ -25,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -36,6 +39,7 @@ public class MatchingServiceImpl implements MatchingService {
     private final MatchingCheckRecordMapper checkRecordMapper;
     private final BuildingMapper buildingMapper;
     private final ShiftQuotaOrderMapper shiftQuotaOrderMapper;
+    private final RepairOrderMapper repairOrderMapper;
     private final RedisLock redisLock;
 
     /**
@@ -54,6 +58,7 @@ public class MatchingServiceImpl implements MatchingService {
                                MatchingCheckRecordMapper checkRecordMapper,
                                BuildingMapper buildingMapper,
                                ShiftQuotaOrderMapper shiftQuotaOrderMapper,
+                               RepairOrderMapper repairOrderMapper,
                                RedisLock redisLock,
                                @Lazy MatchingService self) {
         this.livingUnitMapper = livingUnitMapper;
@@ -62,6 +67,7 @@ public class MatchingServiceImpl implements MatchingService {
         this.checkRecordMapper = checkRecordMapper;
         this.buildingMapper = buildingMapper;
         this.shiftQuotaOrderMapper = shiftQuotaOrderMapper;
+        this.repairOrderMapper = repairOrderMapper;
         this.redisLock = redisLock;
         this.self = self;
     }
@@ -220,20 +226,41 @@ public class MatchingServiceImpl implements MatchingService {
         Building building = buildingMapper.selectById(unit.getBuildingId());
         List<UnitWashbasinBinding> bindings = bindingMapper.selectByUnitId(unitId);
 
+        // 未结送检（待接单）的洗漱台：绑定痕迹保留，但送检期间不计入配套容量
+        Map<Long, RepairOrder> pendingOrders = repairOrderMapper.selectPendingOrders().stream()
+                .collect(Collectors.toMap(RepairOrder::getWashbasinId, o -> o, (a, b) -> a));
+
         List<UnitMatchingDTO.WashbasinInfo> washbasinInfos = new ArrayList<>();
-        Integer totalCapacity = 0;
+        List<UnitMatchingDTO.WashbasinInfo> repairingInfos = new ArrayList<>();
+        int totalCapacity = 0;
+        int repairingCapacity = 0;
 
         for (UnitWashbasinBinding binding : bindings) {
             Washbasin washbasin = washbasinMapper.selectById(binding.getWashbasinId());
-            if (washbasin != null && washbasin.getStatus() == 1) {
-                UnitMatchingDTO.WashbasinInfo info = new UnitMatchingDTO.WashbasinInfo();
-                info.setId(washbasin.getId());
-                info.setWashbasinCode(washbasin.getWashbasinCode());
-                info.setCapacity(washbasin.getCapacity());
-                info.setLocation(washbasin.getLocation());
-                washbasinInfos.add(info);
-                totalCapacity += washbasin.getCapacity();
+            if (washbasin == null || washbasin.getStatus() != 1) {
+                continue;
             }
+            UnitMatchingDTO.WashbasinInfo info = new UnitMatchingDTO.WashbasinInfo();
+            info.setId(washbasin.getId());
+            info.setWashbasinCode(washbasin.getWashbasinCode());
+            info.setCapacity(washbasin.getCapacity());
+            info.setLocation(washbasin.getLocation());
+
+            RepairOrder pending = pendingOrders.get(washbasin.getId());
+            if (pending != null) {
+                // 只从配套中剔除：绑定不改不删，仅以送检痕迹呈现，修复后自动回到配套
+                info.setRepairing(true);
+                info.setRepairOrderId(pending.getId());
+                info.setDamagePart(pending.getDamagePart());
+                info.setDutyPerson(pending.getDutyPerson());
+                info.setRepairStartedAt(pending.getCreatedAt());
+                repairingInfos.add(info);
+                repairingCapacity += washbasin.getCapacity();
+                continue;
+            }
+
+            washbasinInfos.add(info);
+            totalCapacity += washbasin.getCapacity();
         }
 
         UnitMatchingDTO dto = new UnitMatchingDTO();
@@ -245,12 +272,15 @@ public class MatchingServiceImpl implements MatchingService {
         dto.setRoomCount(unit.getRoomCount());
         dto.setResidentCount(unit.getResidentCount());
         dto.setWashbasins(washbasinInfos);
+        dto.setRepairingWashbasins(repairingInfos);
+        dto.setRepairingCapacity(repairingCapacity);
         dto.setTotalCapacity(totalCapacity);
         dto.setRemainingCapacity(totalCapacity - unit.getResidentCount());
         dto.setUsageRate(totalCapacity > 0 ? (double) unit.getResidentCount() / totalCapacity * 100 : 0);
 
         if (totalCapacity == 0) {
-            dto.setMatchingStatus("未绑定");
+            // 绑定关系仍在、只是全部处于未结送检：标“送检中”，与完全没绑过区分开
+            dto.setMatchingStatus(repairingCapacity > 0 ? "送检中" : "未绑定");
         } else if (unit.getResidentCount() > totalCapacity) {
             dto.setMatchingStatus("不匹配");
         } else if (dto.getUsageRate() >= WARN_THRESHOLD * 100) {

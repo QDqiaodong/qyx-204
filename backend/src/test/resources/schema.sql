@@ -57,6 +57,22 @@ CREATE TABLE shift_quota_order (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- H2 与 MySQL 同构：open_flag 待接单为 1、已修复为 NULL，唯一索引保证同台仅一张未结单
+CREATE TABLE washbasin_repair_order (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    washbasin_id BIGINT NOT NULL,
+    damage_part VARCHAR(255) NOT NULL,
+    duty_person VARCHAR(50) NOT NULL,
+    operator VARCHAR(50) DEFAULT 'system',
+    status VARCHAR(10) NOT NULL DEFAULT 'PENDING',
+    open_flag TINYINT DEFAULT 1,
+    repair_note VARCHAR(255) DEFAULT NULL,
+    repaired_at DATETIME DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_washbasin_open UNIQUE (washbasin_id, open_flag)
+);
+
 CREATE TABLE matching_check_record (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     unit_id BIGINT NOT NULL,

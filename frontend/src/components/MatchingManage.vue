@@ -9,6 +9,8 @@ const washbasins = ref<Washbasin[]>([])
 const selectedBuildingId = ref<number | null>(null)
 const selectedUnitId = ref<number | null>(null)
 const selectedWashbasinIds = ref<number[]>([])
+// 当前单元处于未结送检的台：绑定仍可保留/建立，但送检期间不计入配套容量
+const repairingMap = ref<Record<number, { damagePart?: string; dutyPerson?: string }>>({})
 
 const checkResult = ref<MatchingCheckResult | null>(null)
 const currentUnitInfo = ref<LivingUnit | null>(null)
@@ -25,16 +27,28 @@ const filteredWashbasins = computed(() => {
 
 watch(selectedUnitId, async (newVal) => {
   if (newVal) {
-    const res = await matchingApi.getUnitMatching(newVal)
-    selectedWashbasinIds.value = res.washbasins.map(w => w.id)
-    currentUnitInfo.value = units.value.find(u => u.id === newVal) || null
+    await refreshUnitInfo(newVal)
     await checkCapacity()
   } else {
     selectedWashbasinIds.value = []
+    repairingMap.value = {}
     checkResult.value = null
     currentUnitInfo.value = null
   }
 })
+
+// 以服务端口径重刷：在配套的台 vs 送检中（绑定保留、不计配套）的台
+const refreshUnitInfo = async (unitId: number) => {
+  const res = await matchingApi.getUnitMatching(unitId)
+  selectedWashbasinIds.value = res.washbasins.map(w => w.id)
+  repairingMap.value = Object.fromEntries(
+    (res.repairingWashbasins || []).map(w => [
+      w.id,
+      { damagePart: w.damagePart, dutyPerson: w.dutyPerson }
+    ])
+  )
+  currentUnitInfo.value = units.value.find(u => u.id === unitId) || null
+}
 
 const loadData = async () => {
   const [buildingData, unitData, washbasinData] = await Promise.all([
@@ -69,6 +83,8 @@ const handleBind = async () => {
       ElMessage.success('绑定成功')
     }
   }
+  // 按服务端口径重刷：若勾选的是送检中台，绑定痕迹建立但仍归入“送检中”，不计配套
+  await refreshUnitInfo(selectedUnitId.value!)
   await checkCapacity()
 }
 
@@ -136,6 +152,7 @@ onMounted(() => {
         <el-checkbox-group v-model="selectedWashbasinIds">
           <el-checkbox v-for="w in filteredWashbasins" :key="w.id" :label="w.id" :disabled="selectedUnitId === null">
             {{ w.washbasinCode }} - {{ w.location }} (容量: {{ w.capacity }}人)
+            <el-tag v-if="repairingMap[w.id]" type="warning" size="small" style="margin-left: 6px">送检中，修复前不计配套</el-tag>
           </el-checkbox>
         </el-checkbox-group>
         <el-button type="primary" @click="handleBind" :disabled="!selectedUnitId || selectedWashbasinIds.length === 0" style="margin-top: 10px">
@@ -144,10 +161,20 @@ onMounted(() => {
       </el-card>
 
       <el-card title="已绑定洗漱台" size="small">
-        <div v-if="selectedWashbasinIds.length === 0" class="empty-tip">暂无绑定的洗漱台</div>
-        <el-tag v-for="w in filteredWashbasins.filter(w => selectedWashbasinIds.includes(w.id))" :key="w.id" closable @close="handleUnbind(w.id)">
+        <div v-if="selectedWashbasinIds.length === 0 && Object.keys(repairingMap).length === 0" class="empty-tip">暂无绑定的洗漱台</div>
+        <el-tag v-for="w in filteredWashbasins.filter(w => selectedWashbasinIds.includes(w.id))" :key="w.id" closable @close="handleUnbind(w.id)" style="margin: 3px">
           {{ w.washbasinCode }} - {{ w.location }} (容量: {{ w.capacity }}人)
         </el-tag>
+        <div
+          v-for="w in filteredWashbasins.filter(w => repairingMap[w.id])"
+          :key="'repair-' + w.id"
+          class="repairing-row"
+        >
+          <el-tag type="info" style="margin: 3px; text-decoration: line-through">
+            {{ w.washbasinCode }} - {{ w.location }} (容量: {{ w.capacity }}人)
+          </el-tag>
+          <span class="repairing-text">送检中（{{ repairingMap[w.id].damagePart }}，经办{{ repairingMap[w.id].dutyPerson }}），绑定保留、暂不计配套</span>
+        </div>
       </el-card>
     </div>
 
@@ -219,6 +246,16 @@ onMounted(() => {
   color: #999;
   padding: 20px;
   text-align: center;
+}
+
+.repairing-row {
+  margin: 6px 0;
+}
+
+.repairing-text {
+  color: #909399;
+  font-size: 12px;
+  margin-left: 6px;
 }
 
 .check-result {
