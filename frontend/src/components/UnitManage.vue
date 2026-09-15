@@ -56,15 +56,19 @@ const handleSubmit = async () => {
     ElMessage.warning('请填写完整信息')
     return
   }
-  if (isEdit.value) {
-    await livingUnitApi.update(form.value.id!, form.value)
-    ElMessage.success('更新成功')
-  } else {
-    await livingUnitApi.create(form.value as Omit<LivingUnit, 'id'>)
-    ElMessage.success('创建成功')
+  try {
+    if (isEdit.value) {
+      await livingUnitApi.update(form.value.id!, form.value)
+      ElMessage.success('更新成功')
+    } else {
+      await livingUnitApi.create(form.value as Omit<LivingUnit, 'id'>)
+      ElMessage.success('创建成功')
+    }
+    visible.value = false
+    loadUnits()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存失败')
   }
-  visible.value = false
-  loadUnits()
 }
 
 const handleSearch = async () => {

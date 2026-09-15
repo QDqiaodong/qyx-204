@@ -77,6 +77,7 @@ export interface MatchingCheckResult {
 export interface UnitMatching {
   unitId: number
   unitCode: string
+  buildingId: number
   buildingName: string
   floor: number
   roomCount: number
@@ -86,6 +87,9 @@ export interface UnitMatching {
   remainingCapacity: number
   usageRate: number
   matchingStatus: string
+  buildingResidentTotal?: number
+  shiftQuotaCapacity?: number
+  quotaExceeded?: boolean
 }
 
 export interface WashbasinInfo {
@@ -106,6 +110,31 @@ export interface MatchingCheckRecord {
   checkMessage: string
   operator: string
   checkTime: string
+}
+
+export interface ShiftQuotaOrder {
+  id: number
+  buildingId: number
+  quotaDate: string
+  dutyPerson: string
+  quotaCapacity: number
+  shiftStart: string
+  shiftEnd: string
+  status: string
+  reopenReason?: string
+  closedAt?: string
+  createdAt?: string
+}
+
+export interface BuildingQuotaStatus {
+  buildingId: number
+  buildingName: string
+  residentTotal: number
+  hasOpenOrder: boolean
+  quotaOrderId?: number
+  quotaCapacity?: number
+  dutyPerson?: string
+  overQuota: boolean
 }
 
 export const buildingApi = {
@@ -151,4 +180,29 @@ export const matchingApi = {
     get<MatchingCheckRecord[]>('/matching/records'),
   getRecordsByUnit: (unitId: number) =>
     get<MatchingCheckRecord[]>(`/matching/records/${unitId}`)
+}
+
+export const quotaOrderApi = {
+  getAll: (params?: { buildingId?: number; status?: string; quotaDate?: string }) =>
+    get<ShiftQuotaOrder[]>('/quota-orders', { params }),
+  getCurrent: (buildingId: number) =>
+    get<ShiftQuotaOrder | null>('/quota-orders/current', { params: { buildingId } }),
+  getBuildingStatuses: () =>
+    get<BuildingQuotaStatus[]>('/quota-orders/building-status'),
+  create: (data: {
+    buildingId: number
+    quotaDate?: string
+    dutyPerson: string
+    quotaCapacity: number
+    shiftStart: string
+    shiftEnd: string
+    reopenReason?: string
+    operator?: string
+  }) => post<ShiftQuotaOrder>('/quota-orders', data),
+  append: (id: number, data: { additionalCapacity: number; operator?: string }) =>
+    post<ShiftQuotaOrder>(`/quota-orders/${id}/append`, data),
+  close: (id: number, operator?: string) =>
+    post<ShiftQuotaOrder>(`/quota-orders/${id}/close`, null, {
+      params: { operator: operator || '' }
+    })
 }

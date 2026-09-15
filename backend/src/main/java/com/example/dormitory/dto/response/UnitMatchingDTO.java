@@ -26,6 +26,14 @@ public class UnitMatchingDTO {
 
     private String matchingStatus;
 
+    private Long buildingId;
+
+    private Integer buildingResidentTotal;
+
+    private Integer shiftQuotaCapacity;
+
+    private Boolean quotaExceeded;
+
     public Long getUnitId() {
         return unitId;
     }
@@ -112,6 +120,38 @@ public class UnitMatchingDTO {
 
     public void setMatchingStatus(String matchingStatus) {
         this.matchingStatus = matchingStatus;
+    }
+
+    public Long getBuildingId() {
+        return buildingId;
+    }
+
+    public void setBuildingId(Long buildingId) {
+        this.buildingId = buildingId;
+    }
+
+    public Integer getBuildingResidentTotal() {
+        return buildingResidentTotal;
+    }
+
+    public void setBuildingResidentTotal(Integer buildingResidentTotal) {
+        this.buildingResidentTotal = buildingResidentTotal;
+    }
+
+    public Integer getShiftQuotaCapacity() {
+        return shiftQuotaCapacity;
+    }
+
+    public void setShiftQuotaCapacity(Integer shiftQuotaCapacity) {
+        this.shiftQuotaCapacity = shiftQuotaCapacity;
+    }
+
+    public Boolean getQuotaExceeded() {
+        return quotaExceeded;
+    }
+
+    public void setQuotaExceeded(Boolean quotaExceeded) {
+        this.quotaExceeded = quotaExceeded;
     }
 
     public static class WashbasinInfo {

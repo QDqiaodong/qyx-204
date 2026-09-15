@@ -6,11 +6,13 @@ import com.example.dormitory.dto.response.UnitMatchingDTO;
 import com.example.dormitory.entity.Building;
 import com.example.dormitory.entity.LivingUnit;
 import com.example.dormitory.entity.MatchingCheckRecord;
+import com.example.dormitory.entity.ShiftQuotaOrder;
 import com.example.dormitory.entity.UnitWashbasinBinding;
 import com.example.dormitory.entity.Washbasin;
 import com.example.dormitory.mapper.BuildingMapper;
 import com.example.dormitory.mapper.LivingUnitMapper;
 import com.example.dormitory.mapper.MatchingCheckRecordMapper;
+import com.example.dormitory.mapper.ShiftQuotaOrderMapper;
 import com.example.dormitory.mapper.UnitWashbasinBindingMapper;
 import com.example.dormitory.mapper.WashbasinMapper;
 import com.example.dormitory.service.MatchingService;
@@ -30,6 +32,7 @@ public class MatchingServiceImpl implements MatchingService {
     private final UnitWashbasinBindingMapper bindingMapper;
     private final MatchingCheckRecordMapper checkRecordMapper;
     private final BuildingMapper buildingMapper;
+    private final ShiftQuotaOrderMapper shiftQuotaOrderMapper;
 
     private static final double WARN_THRESHOLD = 0.85;
 
@@ -37,12 +40,14 @@ public class MatchingServiceImpl implements MatchingService {
                                WashbasinMapper washbasinMapper,
                                UnitWashbasinBindingMapper bindingMapper,
                                MatchingCheckRecordMapper checkRecordMapper,
-                               BuildingMapper buildingMapper) {
+                               BuildingMapper buildingMapper,
+                               ShiftQuotaOrderMapper shiftQuotaOrderMapper) {
         this.livingUnitMapper = livingUnitMapper;
         this.washbasinMapper = washbasinMapper;
         this.bindingMapper = bindingMapper;
         this.checkRecordMapper = checkRecordMapper;
         this.buildingMapper = buildingMapper;
+        this.shiftQuotaOrderMapper = shiftQuotaOrderMapper;
     }
 
     @Override
@@ -177,6 +182,7 @@ public class MatchingServiceImpl implements MatchingService {
         UnitMatchingDTO dto = new UnitMatchingDTO();
         dto.setUnitId(unit.getId());
         dto.setUnitCode(unit.getUnitCode());
+        dto.setBuildingId(unit.getBuildingId());
         dto.setBuildingName(building != null ? building.getBuildingName() : "");
         dto.setFloor(unit.getFloor());
         dto.setRoomCount(unit.getRoomCount());
@@ -196,7 +202,32 @@ public class MatchingServiceImpl implements MatchingService {
             dto.setMatchingStatus("匹配");
         }
 
+        applyShiftQuotaStatus(dto, unit.getBuildingId());
+
         return dto;
+    }
+
+    /**
+     * 楼栋当班定额校验：该楼栋各单元居住人数合计一旦超过未结定额单的定额可洗人数，
+     * 该楼栋所有单元在匹配一览中一律标为"超定额"，不得显示为匹配。
+     */
+    private void applyShiftQuotaStatus(UnitMatchingDTO dto, Long buildingId) {
+        dto.setQuotaExceeded(false);
+        if (buildingId == null) {
+            return;
+        }
+        ShiftQuotaOrder openOrder = shiftQuotaOrderMapper.selectOpenByBuildingId(buildingId);
+        if (openOrder == null) {
+            return;
+        }
+        Integer residentTotal = livingUnitMapper.sumResidentCountByBuildingId(buildingId);
+        int total = residentTotal != null ? residentTotal : 0;
+        dto.setBuildingResidentTotal(total);
+        dto.setShiftQuotaCapacity(openOrder.getQuotaCapacity());
+        if (total > openOrder.getQuotaCapacity()) {
+            dto.setMatchingStatus("超定额");
+            dto.setQuotaExceeded(true);
+        }
     }
 
     @Override

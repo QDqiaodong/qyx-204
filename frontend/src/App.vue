@@ -5,6 +5,7 @@ import UnitManage from './components/UnitManage.vue'
 import MatchingManage from './components/MatchingManage.vue'
 import MatchingList from './components/MatchingList.vue'
 import RecordsList from './components/RecordsList.vue'
+import QuotaManage from './components/QuotaManage.vue'
 
 const activeTab = ref('washbasin')
 
@@ -13,6 +14,7 @@ const tabs = [
   { label: '居住单元管理', value: 'unit' },
   { label: '绑定匹配', value: 'matching' },
   { label: '匹配一览', value: 'list' },
+  { label: '当班定额', value: 'quota' },
   { label: '校验记录', value: 'records' }
 ]
 </script>
@@ -32,6 +34,7 @@ const tabs = [
       <UnitManage v-else-if="activeTab === 'unit'" />
       <MatchingManage v-else-if="activeTab === 'matching'" />
       <MatchingList v-else-if="activeTab === 'list'" />
+      <QuotaManage v-else-if="activeTab === 'quota'" />
       <RecordsList v-else-if="activeTab === 'records'" />
     </main>
   </div>

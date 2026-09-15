@@ -48,6 +48,25 @@ CREATE TABLE IF NOT EXISTS unit_washbasin_binding (
     UNIQUE KEY uk_unit_washbasin (unit_id, washbasin_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='单元洗漱台绑定关系表';
 
+CREATE TABLE IF NOT EXISTS shift_quota_order (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    building_id BIGINT NOT NULL COMMENT '楼栋ID',
+    quota_date DATE NOT NULL COMMENT '定额所属自然日',
+    duty_person VARCHAR(50) NOT NULL COMMENT '值班人',
+    quota_capacity INT NOT NULL COMMENT '定额可洗人数',
+    shift_start DATETIME NOT NULL COMMENT '当班开始时间',
+    shift_end DATETIME NOT NULL COMMENT '当班结束时间',
+    status VARCHAR(10) NOT NULL DEFAULT 'OPEN' COMMENT '状态：OPEN未结 CLOSED已结',
+    reopen_reason VARCHAR(255) DEFAULT NULL COMMENT '补开原因',
+    closed_at DATETIME DEFAULT NULL COMMENT '结案时间',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    open_flag TINYINT GENERATED ALWAYS AS (IF(status = 'OPEN', 1, NULL)) STORED COMMENT '未结标记：未结为1，已结为NULL',
+    UNIQUE KEY uk_building_open (building_id, open_flag),
+    KEY idx_building_date (building_id, quota_date),
+    FOREIGN KEY (building_id) REFERENCES building(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='楼栋当班用水定额单';
+
 CREATE TABLE IF NOT EXISTS matching_check_record (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     unit_id BIGINT NOT NULL COMMENT '居住单元ID',

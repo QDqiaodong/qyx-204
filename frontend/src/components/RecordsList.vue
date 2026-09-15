@@ -22,7 +22,21 @@ const getCheckTypeText = (type: string) => {
     case 'BIND': return '绑定'
     case 'UNBIND': return '解绑'
     case 'UPDATE': return '更新'
+    case 'QUOTA_OPEN': return '定额开单'
+    case 'QUOTA_APPEND': return '定额追加'
+    case 'QUOTA_CLOSE': return '定额结案'
     default: return type
+  }
+}
+
+const getCheckTypeColor = (type: string) => {
+  switch (type) {
+    case 'BIND': return 'success'
+    case 'UNBIND': return 'warning'
+    case 'QUOTA_OPEN': return 'primary'
+    case 'QUOTA_APPEND': return 'danger'
+    case 'QUOTA_CLOSE': return 'info'
+    default: return 'info'
   }
 }
 
@@ -32,6 +46,16 @@ const getResultColor = (result: string) => {
     case 'WARN': return 'warning'
     case 'FAIL': return 'danger'
     default: return 'info'
+  }
+}
+
+const getResultText = (result: string) => {
+  switch (result) {
+    case 'PASS': return '通过'
+    case 'WARN': return '预警'
+    case 'FAIL': return '失败'
+    case 'INFO': return '记录'
+    default: return result
   }
 }
 
@@ -56,14 +80,17 @@ onMounted(() => {
       <el-table-column v-for="col in columns" :key="col.prop" :prop="col.prop" :label="col.label">
         <template #default="scope">
           <template v-if="col.prop === 'checkType'">
-            <el-tag size="small" :type="scope.row.checkType === 'BIND' ? 'success' : scope.row.checkType === 'UNBIND' ? 'warning' : 'info'">
+            <el-tag size="small" :type="getCheckTypeColor(scope.row.checkType)">
               {{ getCheckTypeText(scope.row.checkType) }}
             </el-tag>
           </template>
           <template v-else-if="col.prop === 'checkResult'">
             <el-tag :type="getResultColor(scope.row.checkResult)">
-              {{ scope.row.checkResult === 'PASS' ? '通过' : scope.row.checkResult === 'WARN' ? '预警' : '失败' }}
+              {{ getResultText(scope.row.checkResult) }}
             </el-tag>
+          </template>
+          <template v-else-if="col.prop === 'unitId'">
+            {{ scope.row.unitId === 0 ? '楼栋级' : scope.row.unitId }}
           </template>
           <template v-else-if="col.prop === 'checkTime'">
             {{ new Date(scope.row.checkTime).toLocaleString() }}

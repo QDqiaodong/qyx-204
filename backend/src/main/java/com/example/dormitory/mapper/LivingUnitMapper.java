@@ -13,4 +13,10 @@ public interface LivingUnitMapper extends BaseMapper<LivingUnit> {
 
     @Select("SELECT u.* FROM living_unit u WHERE u.building_id = #{buildingId} AND u.status = 1")
     List<LivingUnit> selectByBuildingId(@Param("buildingId") Long buildingId);
+
+    @Select("SELECT u.* FROM living_unit u WHERE u.id = #{id} FOR UPDATE")
+    LivingUnit selectByIdForUpdate(@Param("id") Long id);
+
+    @Select("SELECT COALESCE(SUM(u.resident_count), 0) FROM living_unit u WHERE u.building_id = #{buildingId} AND u.status = 1")
+    Integer sumResidentCountByBuildingId(@Param("buildingId") Long buildingId);
 }
